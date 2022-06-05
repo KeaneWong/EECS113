@@ -6,13 +6,29 @@ import RPi.GPIO as GPIO
 import time
 import urllib3
 import Adafruit_DHT
-import board
 import json
 
 from datetime import date, timedelta, datetime
 
-GPIO.setwarnings(False) #disbaling warnings for some reason
+###initialize board
+GPIO.setwarnings(False) #disabling warnings for some reason
 GPIO.setmode(GPIO.BCM)
+###
+
+
+###initialize DHT sensor
+DHT_SENSOR = Adafruit_DHT.DHT11
+DHT_PIN = 4
+###
+
+###initialize buttons
+buttonDown = 25
+buttonUp = 18
+GPIO.setup(buttonDown, GPIO.IN, pull_up_down = GPIO.PUD_UP)
+GPIO.setup(buttonUp, GPIO.IN, pull_up_down = GPIO.PUD_UP)
+GPIO.add_event_detect(buttonDown,GPIO.RISING)
+GPIO.add_event_detect(buttonUp,GPIO.RISING)
+###
 
 
 
@@ -45,35 +61,122 @@ def queryHumidity():
     return float(humidity)
 
 
-DHT_SENSOR = Adafruit_DHT.DHT11
-DHT_PIN = 4
 humidity = queryHumidity()
+targetTemperature = None
 
-while True:
+#detect buttons 3 times per second
+def SenseButtons():
+    if GPIO.event_detected(buttonUp):
+        print("Button Up detected")
+        targetTemperature = targetTemperature + 1.0
+    if GPIO.event_detected(buttonDown):
+        print("Button Down detected")
+        targetTemperature = targetTemperature - 1.0
+    sleep(0.33)
 
-    humidity1, temperature1 = Adafruit_DHT.read(DHT_SENSOR,DHT_PIN)
-    if temperature1 is None or humidity1 is None:
-        print("error1")
-    #read input
-    time.sleep(1)
+    if GPIO.event_detected(buttonUp):
+        print("Button Up detected")
+        targetTemperature = targetTemperature + 1.0
+    if GPIO.event_detected(buttonDown):
+        print("Button Down detected")
+        targetTemperature = targetTemperature - 1.0
+    sleep(0.33)
 
-    humidity2, temperature2 = Adafruit_DHT.read(DHT_SENSOR,DHT_PIN)
-    if temperature1 is None or humidity1 is None:
-        print("error2")
-    #read input
-    time.sleep(1)
+    if GPIO.event_detected(buttonUp):
+        print("Button Up detected")
+        targetTemperature = targetTemperature + 1.0
+    if GPIO.event_detected(buttonDown):
+        print("Button Down detected")
+        targetTemperature = targetTemperature - 1.0
+    sleep(0.33)
 
-    humidity3, temperature3 = Adafruit_DHT.read(DHT_SENSOR,DHT_PIN)
-    if temperature1 is None or humidity1 is None:
-        print("error3")
-    #read input
-    time.sleep(1)
-    #average measurements and feed to lcd
-    
-    temperature = (temperature1+temperature2+temperature3)/3.0
-    print("Temp ", temperature)
-    
+
+def HandleAC(doorsOpen, isHeating, isAC, targetTemperature, trueTemp, energyUsed):
+    if not doorsOpen:
+        if targetTemperature - trueTemp  > 3.0 and not isHeating: #implies current temperature is too low and heater must be turned on
+            ###function to print "Heater is On" to LCD. Hold for 3 seconds
+            print("Turn on Heater")
+            isHeating = True
+            ###function to report energy bill to LCD
+        elif targetTemperature - trueTemp < -3.0 and not isAC: #implies current temperature is too high and ac must be turned on
+            ###function to print "AC Is On" to LCD. Hold for 3 seconds
+            print("Turn on AC")
+            isAC = True
+            ###function to report energy bill to LCD
+        elif isAC:
+            ###function to print "Ac is off" to lcd. Hold for 3 seconds
+            print("AC turned off")
+            isAC = False
+            ###function to report energy bill to LCD
+        elif isHeating:
+            ###function to print "Heating is Off". Hold for 3 seconds
+            print("Heating turned off")
+            isHeating = False
+            ###function to report energy bill to LCD
+    else:
+        if isAC:
+            ###function to print "AC is Off, Windows open". Hold for 3 seconds
+            print("Turn Off AC; Windows open")
+            isAC = False
+            ###function to report energy bill to LCD
+        if isHeating:
+            ###function to print "Heating is Off, Windows open". Hold for 3 seconds
+            print("Turn off heating; Windows open")
+            isHeating = False
+            ###function to report energy bill to LCD
+    return isHeating, isAC
+
+def SenseTemperature():
+    doorsOpen = False
+    isHeating = False
+    isAC = False
+
+    hum0, targetTemperature = Adafruit_DHT.read(DHT_SENSOR,DHT_PIN) #initialize targetTemperature before first SenseButtons call
+    targetTemperature = targetTemperature + 0.05*humidity
+
+    energyUsed = 0.0
+    while True:
+
+        humidity1, temperature1 = Adafruit_DHT.read(DHT_SENSOR,DHT_PIN)
+        if temperature1 is None or humidity1 is None:
+            print("error1")
+
+        #read input
+        SenseButtons()
         
+        humidity2, temperature2 = Adafruit_DHT.read(DHT_SENSOR,DHT_PIN)
+        if temperature1 is None or humidity1 is None:
+            print("error2")
+
+        #read input
+        SenseButtons()
+        
+        humidity3, temperature3 = Adafruit_DHT.read(DHT_SENSOR,DHT_PIN)
+        if temperature1 is None or humidity1 is None:
+            print("error3")
+
+        #read input
+        SenseButtons()
+
+        #average measurements and feed to lcd
+        temperature = (temperature1+temperature2+temperature3)/3.0
+        print("Temperature is ", temperature)
+
+        trueTemp = temperature + 0.05 * humidity
+
+        if isAC: ###add watts
+            energyUsed = energyUsed + 54000.0
+        elif isHeating:
+            energyUsed = energyUsed + 108000.0 
+
+        isHeating, isAC = HandleAC(doorsOpen,isHeating,isAC, targetTemperature, trueTemp, energyUsed)
+
+
+
+SenseTemperature()
+
+
+
 
 
 
